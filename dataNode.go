@@ -12,9 +12,10 @@ import (
 	"path/filepath"
 )
 
-type Command struct {
-	cmdType int    `json:"type"`
-	CID     string `json:"cid"`
+type AdjItem struct {
+	Policy int    `json:"type"`
+	Cid    string `json: "cid"`
+	Delta  int    `json: "delta"`
 }
 
 const IPFS = "/usr/local/bin/ipfs"
@@ -46,10 +47,25 @@ const maxUploadSize = 150 * 1024 * 1024
 const uploadPath = "/tmp/ipfs"
 
 func AddReplica(w http.ResponseWriter, r *http.Request) {
+	bodyBuf, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var adjItem AdjItem
 	//unmarshal json file
+	err := json.Unmarshal(bodyBuf, &adjItem)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	currRepNum, err := client.SCard(adjItem.cid).Result
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	//get cid and op string,actually op string is unessary
-
+	AddOp(adjItem.cid)
 	//get file
 
 	//execute addOp
@@ -63,10 +79,13 @@ func DelReplica(rw http.ResponseWriter, r *http.Request) {
 //body: io.ReadCloser
 //file: multipart.File
 func Put(rw http.ResponseWriter, r *http.Request) {
-	fmt.Println("Put is called")
+	log.Println("Put is called")
 	log.Println("content-length:", r.ContentLength)
 	//isHealth := IsRequestHealthy(r)
 	//r.Body = http.MaxBytesReader(rw, r.Body, maxUploadSize)
+	cid, recoveredBody := CalCidByContent(rw, r)
+	r.Body = ioutil.NopCloser(bytes.NewReader(revoveredBody))
+	err := client.SAdd(keyCids, cid)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		fmt.Println("parse error", err)
 		fmt.Println("content-length", r.ContentLength)

@@ -23,8 +23,9 @@ import (
 //1. transport the request to ipfs
 //2. Periodicly send the replica adjust command to ipfs
 const (
-	replicaNode   = "replica-node"
-	nodesKey      = "all-nodes"
+	keyRNTable    = "replica-node"
+	keyNodes      = "all-nodes"
+	KeyCids       = "all-cids"
 	maxUploadSize = 150 * 1024 * 1024
 	tmp           = "/tmp"
 	IPFS          = "/usr/local/bin/ipfs"
@@ -99,16 +100,17 @@ func reverseHandler(rw http.ResponseWriter, r *http.Request) {
 }
 
 type AdjItem struct {
-	Policy int `policy`
-	Delta  int `delta`
+	Policy int    `policy`
+	Cid    string `cid`
+	Delta  int    `delta`
 }
 
 //a period task
 func AdjustReplica() {
 	for {
-		cids, err := client.SMembers("key:cids").Result()
+		cids, err := client.SMembers(keyCids).Result()
 		if err != nil {
-			fmt.Println("get cids error")
+			log.Println("get cids error")
 		}
 		//scan all the file, get the set of
 		//adjustment & scan all the item, send request to node
@@ -120,12 +122,12 @@ func AdjustReplica() {
 				Policy: res[0].(int),
 				Delta:  res[1].(int),
 			}
+
 			if err != nil {
 				panic(err)
 			}
 
 			busyNodes, _ := client.SMembers(cid).Result()
-			//desNodes, _ := client.SInter(cid, nodesKey).Result()
 			desNode := getAHealthyNode(busyNodes)
 			if item.Policy != 0 || item.Delta != 0 {
 				sendAdjRequest(desNode, &item)
@@ -155,7 +157,7 @@ func sendAdjRequest(host string, item *AdjItem) {
 	log.Println(resp.Status)
 }
 
-func randToken(len int) string {
+func randToken() string {
 	b := make([]byte, len)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)
