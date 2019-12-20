@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"bytes"
@@ -143,11 +143,11 @@ func AdjustReplica() {
 func sendAdjRequest(host string, item *AdjItem) {
 	httpClient := &http.Client{}
 	jsonBytes, err := json.Marshal(*item)
+	url := host + "/AdjRequest"
 	req, err := http.NewRequest(http.MethodPost, host, bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		panic(err)
-	}
-	req.Header.Set("Content-type", "application/json")
+		:et("Content-type", "application/json")
 	resp, err := httpClient.Do(req)
 
 	if err != nil {

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"github.com/go-redis/redis"
 	//	"archive/tar"
 	"fmt"
 	"io/ioutil"
@@ -13,13 +16,17 @@ import (
 )
 
 type AdjItem struct {
-	Policy int    `json:"type"`
+	Policy int    `json:"policy"`
 	Cid    string `json: "cid"`
 	Delta  int    `json: "delta"`
 }
 
-const IPFS = "/usr/local/bin/ipfs"
-const tmp = "/tmp"
+const (
+	IPFS = "/usr/local/bin/ipfs"
+	tmp = "/tmp"
+	KeyNodes = "all-nodes"
+)
+var client redis.Client
 
 func AddOp(cid string) {
 	cmd := exec.Command(IPFS, "tar", "add", cid)
@@ -46,49 +53,57 @@ func DelOp(cid string) {
 const maxUploadSize = 150 * 1024 * 1024
 const uploadPath = "/tmp/ipfs"
 
-func AddReplica(w http.ResponseWriter, r *http.Request) {
-	bodyBuf, err := ioutil.ReadAll(r.Body)
+func SendAddReplica(host string, adjItem *AdjItem) {
+	/**currRepNum, err := client.SCard(cid).Result()
 	if err != nil {
 		log.Fatal(err)
+	}**/
+
+	delta, cid := adjItem.Delta, adjItem.Cid
+	//make it a tar
+
+	//get cid and op string,actually op string is unessary
+	for i := 0; i < delta; i++ {
+
+	}
+}
+
+func SendDelReplica(rw http.ResponseWriter, r *http.Request) {
+
+}
+
+func AdjReplica(rw http.ResponseWriter, r *http.Request) {
+	bodyBuf, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatal("read body")
 	}
 
 	var adjItem AdjItem
-	//unmarshal json file
-	err := json.Unmarshal(bodyBuf, &adjItem)
+	err = json.Unmarshal(bodyBuf, &adjItem)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("decode json err")
 	}
+	if adjItem.Policy == 0 && adjItem.Delta > 0 { // to increase replica
+		//send replica &
 
-	currRepNum, err := client.SCard(adjItem.cid).Result
-	if err != nil {
-		log.Fatal(err)
+	} else if adjItem.Policy == 1 && adjItem.Delta < 0 { // to reduce replica
+
+	} else if adjItem.Policy == 0 { //erasure coding
+
 	}
-
-	//get cid and op string,actually op string is unessary
-	AddOp(adjItem.cid)
-	//get file
-
-	//execute addOp
-}
-
-func DelReplica(rw http.ResponseWriter, r *http.Request) {
-
 }
 
 //user interface: used to upload file
 //body: io.ReadCloser
 //file: multipart.File
 func Put(rw http.ResponseWriter, r *http.Request) {
-	log.Println("Put is called")
-	log.Println("content-length:", r.ContentLength)
 	//isHealth := IsRequestHealthy(r)
 	//r.Body = http.MaxBytesReader(rw, r.Body, maxUploadSize)
 	cid, recoveredBody := CalCidByContent(rw, r)
 	r.Body = ioutil.NopCloser(bytes.NewReader(revoveredBody))
 	err := client.SAdd(keyCids, cid)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		fmt.Println("parse error", err)
-		fmt.Println("content-length", r.ContentLength)
+		log.Println("parse error", err)
 		renderError(rw, "File too big", http.StatusBadRequest)
 		return
 	}
@@ -125,6 +140,7 @@ func Put(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//create a file use ipfs interface
 	rw.Write([]byte("Success"))
 }
 
@@ -139,14 +155,11 @@ func randToken(len int) string {
 	return fmt.Sprintf("%x", b)
 }
 
-func Get(rw http.ResponseWriter, r *http.Request) {
-
-}
-
 func main() {
-	http.HandleFunc("/get", Get)
-	//fs := http.FileServer(http.Dir("/tmp"))
-	//http.Handle("/put", http.StripPrefix(fs, ))
+	//return a handle struct
+	fs := http.FileServer(http.Dir("/tmp"))
+	http.Handle("/get", http.StripPrefix("get", fs))
+	//route for the put file
 	http.HandleFunc("/put", Put)
 	http.ListenAndServe("127.0.0.1:28002", nil)
 }
