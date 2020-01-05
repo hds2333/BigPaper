@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/dennis/http"
+	"github.com/dennis/http/httputil"
 	"github.com/gin-gonic/gin"
-	"net/http"
 )
 
 func main() {
@@ -14,7 +15,7 @@ func main() {
 }
 
 func Forward(c *gin.Context) {
-	targetHost := &httputils.TargetHost{
+	targetHost := &httputil.TargetHost{
 		Host:    "www.baidu.com",
 		IsHttps: false,
 	}

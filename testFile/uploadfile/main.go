@@ -20,24 +20,28 @@ func main() {
 	fs := http.FileServer(http.Dir(uploadPath))
 	http.Handle("/files/", http.StripPrefix("/files", fs))
 
-	log.Print("Server started on localhost:8080, use /upload for uploading files and /files/{fileName} for downloading")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Print("Server started on localhost:8099, use /upload for uploading files and /files/{fileName} for downloading")
+	log.Fatal(http.ListenAndServe(":8099", nil))
 }
 
 func uploadFileHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Println("uploader is called")
+		log.Println(r.Header)
 		// validate file size
 		r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
-		if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-			renderError(w, "FILE_TOO_BIG", http.StatusBadRequest)
+		/*if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+			renderError(w, "FILE_TOO_BIG", http.StatusFailedDependency)
 			return
-		}
+		}*/
 
 		// parse and validate file and post parameters
-		fileType := r.PostFormValue("type")
+		//fileType := r.PostFormValue("type")
+
+		//log.Println("file type is: ", fileType)
 		file, _, err := r.FormFile("uploadFile")
 		if err != nil {
-			renderError(w, "INVALID_FILE(formfile)", http.StatusBadRequest)
+			renderError(w, "INVALID_FILE(formfile)", http.StatusTeapot)
 			return
 		}
 		defer file.Close()
@@ -58,9 +62,10 @@ func uploadFileHandler() http.HandlerFunc {
 			renderError(w, "INVALID_FILE_TYPE", http.StatusBadRequest)
 			return
 		}
-		//fmt.Println("fileType: ", filetype)
+		fmt.Println("fileType: ", filetype)
 		fileName := randToken(12)
 		fileEndings, err := mime.ExtensionsByType(filetype)
+		fmt.Println("mime type: ", fileEndings[0])
 		if err != nil {
 			renderError(w, "CANT_READ_FILE_TYPE", http.StatusInternalServerError)
 			return
@@ -84,7 +89,7 @@ func uploadFileHandler() http.HandlerFunc {
 }
 
 func renderError(w http.ResponseWriter, message string, statusCode int) {
-	w.WriteHeader(http.StatusBadRequest)
+	w.WriteHeader(statusCode)
 	w.Write([]byte(message))
 }
 

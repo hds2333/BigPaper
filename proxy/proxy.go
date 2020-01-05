@@ -144,10 +144,12 @@ func sendAdjRequest(host string, item *AdjItem) {
 	httpClient := &http.Client{}
 	jsonBytes, err := json.Marshal(*item)
 	url := host + "/AdjRequest"
-	req, err := http.NewRequest(http.MethodPost, host, bytes.NewBuffer(jsonBytes))
+	req, err := http.NewRequest(http.MethodPost, host,
+		bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		panic(err)
-		:et("Content-type", "application/json")
+	}
+	//	:et("Content-type", "application/json")
 	resp, err := httpClient.Do(req)
 
 	if err != nil {
@@ -157,8 +159,8 @@ func sendAdjRequest(host string, item *AdjItem) {
 	log.Println(resp.Status)
 }
 
-func randToken() string {
-	b := make([]byte, len)
+func randToken(bits int) string {
+	b := make([]byte, bits)
 	rand.Read(b)
 	return fmt.Sprintf("%x", b)
 }
