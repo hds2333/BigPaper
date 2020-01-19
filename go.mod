@@ -6,6 +6,7 @@ require (
 	github.com/dennis/http v0.0.0
 	github.com/gin-gonic/gin v1.5.0
 	github.com/go-redis/redis v6.15.6+incompatible
+	github.com/pkg/errors v0.8.1
 	utils v0.0.0
 )
 

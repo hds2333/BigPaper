@@ -3,27 +3,22 @@
 package main
 
 import (
-	"fmt"
-	"io"
+	"io/ioutil"
+	"log"
 	"net/http"
-	"os"
 )
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
-	file, err := os.Create("./result")
+	buffer, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		panic(err)
 	}
-	n, err := io.Copy(file, r.Body)
-	if err != nil {
-		panic(err)
-	}
-
-	w.Write([]byte(fmt.Sprintf("%d bytes are recieved.\n", n)))
+	ioutil.WriteFile("result", buffer, 0600)
+	filetype := http.DetectContentType(buffer)
+	log.Println(filetype)
 }
 
 func main() {
 	http.HandleFunc("/upload", uploadHandler)
 	http.ListenAndServe(":5050", nil)
 }
-
