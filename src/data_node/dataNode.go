@@ -3,8 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/pkg/errors"
+	"fmt"
 	"io"
+	"math/rand"
 	"mime"
 	"path"
 	"path/filepath"
@@ -15,26 +16,69 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	//myhttp "github.com/dennis/http"
 	"os"
 	"os/exec"
-	"utils"
 )
 
+//author:Dennis Huang
 type AdjItem struct {
 	Policy int    `json:"policy"`
-	Cid    string `json: "cid"`
-	Delta  int    `json: "delta"`
+	Cid    string `json:"cid"`
+	Delta  int    `json:"delta"`
 }
 
 const (
 	IPFS     = "/usr/local/bin/ipfs"
-	tmp      = "/tmp"
+	tmp      = `E:\BigPaper\src\data_node/tmp`
 	keyNodes = "all-nodes"
 	keyCids  = "all-cids"
+	homepath  = `E:\BigPaper\src\data_node`
 )
 
-var client redis.Client
+var client *redis.Client
+
+func RandToken(len int) string {
+	b := make([]byte, len)
+	rand.Read(b)
+	return fmt.Sprintf("%x", b)
+}
+
+func CalCidByContent(rw http.ResponseWriter, r *http.Request) (string, []byte) {
+	bodyReader := r.Body
+	var buffer []byte
+	buffer, err := ioutil.ReadAll(bodyReader)
+	if err != nil {
+		log.Fatal("buffer error")
+	}
+
+	//rewind the request body
+	r.Body = ioutil.NopCloser(bytes.NewReader(buffer))
+
+	//Produce a filepath
+	fileName := RandToken(12)
+	newPath := filepath.Join(tmp, fileName)
+	newFile, err := os.Create(newPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer newFile.Close()
+	//write file into newpath
+	if _, err := newFile.Write(buffer); err != nil {
+		log.Fatal("cant write file")
+	}
+	//run the command and get the cid
+	cmd := exec.Command(IPFS, "add", "-n", newPath)
+	out, _ := cmd.Output()
+	outslice := strings.Fields(string(out))
+	return outslice[1], buffer
+}
+
+func RenderError(w http.ResponseWriter, message string, statusCode int) {
+	w.WriteHeader(statusCode)
+	w.Write([]byte(message))
+}
+
 
 func addOp(filePath string) string {
 	cmd := exec.Command(IPFS, "add", "-n", filePath)
@@ -101,7 +145,7 @@ func SendDelRequest(host string, adjItem *AdjItem) {
 
 //AddReplica handler of request to add replica
 func AddReplica(rw http.ResponseWriter, r *http.Request) {
-	filename := utils.RandToken(12)
+	filename := RandToken(12)
 	newFilePath := filepath.Join(tmp, filename)
 	newFileHdl, err := os.Create(newFilePath)
 	errPanic(err)
@@ -110,12 +154,12 @@ func AddReplica(rw http.ResponseWriter, r *http.Request) {
 	log.Println("cp size: ", sz)
 	cid := addOp(newFilePath)
 	log.Println("Add replica on HOST", r.URL.Host)
-	if utils.IsIPv4(r.URL.Host) {
-		_, err := client.SAdd(cid, r.URL.Host).Result()
+	//if IsIPv4(r.URL.Host) {
+		_, err = client.SAdd(cid, r.URL.Host).Result()
 		panic(err)
-	} else {
-		panic(errors.New("Wrong Format of IPv4 Addr"))
-	}
+	//} else {
+	//	panic(errors.New("Wrong Format of IPv4 Addr"))
+	//}
 }
 
 //DelReplica handler of request to del replica
@@ -127,9 +171,9 @@ func DelReplica(rw http.ResponseWriter, r *http.Request) {
 	errPanic(err)
 	delOp(adjItem.Cid)
 	log.Println("Del replica on HOST: ", r.URL.Host)
-	if utils.IsIPv4(r.URL.Host) {
-		client.SRem(adjItem.Cid, r.URL.Host)
-	}
+	//if utils.IsIPv4(r.URL.Host) {
+	client.SRem(adjItem.Cid, r.URL.Host)
+	//}
 }
 
 //Processor
@@ -144,6 +188,7 @@ func AdjReplica(rw http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal("decode json err")
 	}
+
 	nodes, err := client.SDiff(adjItem.Cid, keyNodes).Result()
 	if err != nil {
 		log.Fatal("datanode:AdjReplica:line99")
@@ -154,7 +199,7 @@ func AdjReplica(rw http.ResponseWriter, r *http.Request) {
 		for i := 0; i < len(nodes); i++ {
 			SendAddRequest(nodes[i], &adjItem)
 		}
-	} else if 1 == adjItem.Policy && adjItem.Delta < 0 { // to reduce replica
+	} else if 2 == adjItem.Policy && adjItem.Delta < 0 { // to reduce replica
 		nodes := nodes[0:adjItem.Delta]
 		for i := 0; i < len(nodes); i++ {
 			SendDelRequest(nodes[i], &adjItem)
@@ -172,7 +217,8 @@ func AdjReplica(rw http.ResponseWriter, r *http.Request) {
 //file: multipart.File
 func Put(rw http.ResponseWriter, r *http.Request) {
 	//isHealth := IsRequestHealthy(r)
-	cid, recoveredBody := utils.CalCidByContent(rw, r)
+	cid, recoveredBody := CalCidByContent(rw, r)
+	log.Println(cid)
 	r.Body = ioutil.NopCloser(bytes.NewReader(recoveredBody))
 	client.SAdd(keyCids, cid)
 
@@ -185,28 +231,46 @@ func Put(rw http.ResponseWriter, r *http.Request) {
 	fileType, err := mime.ExtensionsByType(mimeType)
 	errPanic(err)
 
-	filename := utils.RandToken(12)+"."+fileType[0]
+	filename := RandToken(12)+"."+fileType[0]
 	err = ioutil.WriteFile(filepath.Join(tmp, filename), buffer, 0644)
 	errPanic(err)
 
-	rw.Write([]byte("Success"))
+	_, err = rw.Write([]byte("Success"))
+	log.Fatal(err)
 }
 
 func errPanic(err error) {
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 
 func main() {
 	//return a handle struct
-	fs := http.FileServer(http.Dir("/tmp"))
+	fs := http.FileServer(http.Dir(homepath))
+
+	client = redis.NewClient(&redis.Options{
+		Addr: "localhost:6379",
+		Password:	"",
+		DB:	0,
+	})
+	helloHandler := func(w http.ResponseWriter, req *http.Request) {
+		_, err := io.WriteString(w, "Hello, world!\n")
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	http.HandleFunc("/hello", helloHandler)
+
 	http.Handle("/get", http.StripPrefix("get", fs))
 	//route for the put file
 	http.HandleFunc("/addreplica", AddReplica)
 	http.HandleFunc("/adjreplica", AdjReplica)
 	http.HandleFunc("/delreplica", DelReplica)
 	http.HandleFunc("/put", Put)
+	
+	fmt.Println("sever start")
 	err := http.ListenAndServe("127.0.0.1:28002", nil)
 	if err != nil {
 		log.Fatal("server down")
