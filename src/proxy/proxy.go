@@ -1,4 +1,4 @@
-package proxy
+package main
 
 import (
 	"bufio"
@@ -24,17 +24,17 @@ import (
 //1. transport the request to ipfs
 //2. Periodicly send the replica adjust command to ipfs
 const (
-	keyNodes      = "all-nodes"
-	keyCids       = "all-cids"
-	tmp           = "/tmp"
-	IPFS          = "/usr/local/bin/ipfs"
-	predictLen = 72
+	keyNodes   = "all-nodes"
+	keyCids    = "all-cids"
+	tmp        = "/tmp"
+	IPFS       = "/usr/local/bin/ipfs"
+	predictLen = 5
 )
 
 var (
 	periodIndex = 0
-	modelMap map[string][]int
-	client *redis.Client
+	modelMap    map[string][]int
+	client      *redis.ClusterClient
 )
 
 type AdjItem struct {
@@ -89,7 +89,13 @@ func reverseHandler(rw http.ResponseWriter, r *http.Request) {
 	r.Body = rdr1
 
 	//根据节点信用去转发请求
-	newUrlStr := strings.Join([]string{"http://", "127.0.0.1:28002"}, "")
+	nodes, err := client.SMembers(keyNodes).Result()
+	if err != nil {
+		log.Fatal("Smember Err:", keyNodes)
+	}
+	//TODO host := SelectNode(nodes)
+	host := nodes[0]
+	newUrlStr := strings.Join([]string{"http://", host, ":28002"}, "")
 	remote, err := url.Parse(newUrlStr)
 	if err != nil {
 		log.Fatal("Parse URL")
@@ -99,10 +105,9 @@ func reverseHandler(rw http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(rw, r)
 }
 
-
-
 //AdjustReplica a period task
 func AdjustReplica() {
+	log.Println("进入工作状态")
 	for {
 		cids, err := client.SMembers(keyCids).Result()
 		if err != nil {
@@ -113,31 +118,40 @@ func AdjustReplica() {
 		//select a node including the replica
 		for _, cid := range cids {
 			//TODO: judging from the heathy to select a node
+			log.Printf("给单位注意,现在开始处理第[%s]号文件\n", cid)
 			nodes, err := client.SMembers(cid).Result()
 			if err != nil {
-				log.Fatal("redis error")
+				log.Fatal("SMem err")
 			}
 			var policy, delta int
-			//3 is a temporary threshold
-			if periodIndex > 0 {
-				delta = modelMap[cid][periodIndex] -
-					modelMap[cid][periodIndex-1]
-				if  modelMap[cid][periodIndex] < 3 {
-					policy = 0
-				} else if delta > 0{
-					policy = 1
-				} else if delta < 0 {
-					policy = 2
-				}
+			currRepNum := len(nodes)
+			delta = modelMap[cid][periodIndex] - currRepNum
+			if modelMap[cid][periodIndex] < 2 {
+				policy = 0
+			} else if delta > 0 {
+				policy = 1
+			} else if delta < 0 {
+				policy = 2
 			}
 
 			item := AdjItem{
-				Cid: cid,
+				Cid:    cid,
 				Policy: policy,
-				Delta: delta,
+				Delta:  delta,
 			}
-			sendAdjRequest(nodes[0], &item)
-			log.Println(cid)
+			//TODO Add Nodes Selection Module
+			if len(nodes) > 0 {
+				sendAdjRequest(nodes[0], &item)
+				log.Printf("我是代理,我向节点[%d]发送了命令[%+v]\n", nodes[0], item)
+			} else {
+				log.Printf("第[%s]号文件的副本已经全部删除，请手动增加:\n", cid)
+				var fileName string
+				fmt.Scan(&fileName)
+				cmdline := exec.Command("/usr/local/bin/ipfs-cluster-ctl", "add", fileName)
+				if err := cmdline.Run(); err != nil {
+					log.Fatal("ipfs-cluster-ctl add error:", err)
+				}
+			}
 		}
 		periodIndex++
 		if periodIndex == predictLen {
@@ -153,7 +167,7 @@ func AdjustReplica() {
 func sendAdjRequest(host string, item *AdjItem) {
 	httpClient := &http.Client{}
 	jsonBytes, err := json.Marshal(*item)
-	url := host + "/AdjRequest"
+	url := "http://" + host + ":28002" + "/AdjReplica"
 	req, err := http.NewRequest(http.MethodPost, url,
 		bytes.NewBuffer(jsonBytes))
 	if err != nil {
@@ -161,7 +175,7 @@ func sendAdjRequest(host string, item *AdjItem) {
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		log.Fatal("send request err", err)
+		log.Fatal("send request err:", err)
 	}
 
 	log.Println(resp.Status)
@@ -188,15 +202,28 @@ func importModel(modelName string) {
 	}
 }
 
-func main() {
-	client = redis.NewClient(&redis.Options{
-		Addr:	"localhost:6379",
-		Password:	"",
-		DB:	0,
+func init() {
+	client = redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs: []string{
+			"172.22.0.2:7000",
+			"172.22.0.2:7001",
+			"172.22.0.2:7002",
+			"172.22.0.2:7003",
+			"172.22.0.2:7004",
+			"172.22.0.2:7005",
+		},
+		Password: "",
 	})
-
+	pong, err := client.Ping().Result()
+	if err != nil {
+		log.Fatal("Redis Connect Err")
+	} else {
+		log.Println("Redis Connect Succeed", pong)
+	}
 	importModel("model")
+}
 
+func main() {
 	go func() {
 		AdjustReplica()
 	}()
