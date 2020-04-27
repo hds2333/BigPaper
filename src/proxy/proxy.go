@@ -142,7 +142,7 @@ func AdjustReplica() {
 			//TODO Add Nodes Selection Module
 			if len(nodes) > 0 {
 				sendAdjRequest(nodes[0], &item)
-				log.Printf("我是代理,我向节点[%d]发送了命令[%+v]\n", nodes[0], item)
+				log.Printf("我是代理,我向节点[%s]发送了命令%+v\n", nodes[0], item)
 			} else {
 				log.Printf("第[%s]号文件的副本已经全部删除，请手动增加:\n", cid)
 				var fileName string
@@ -167,7 +167,7 @@ func AdjustReplica() {
 func sendAdjRequest(host string, item *AdjItem) {
 	httpClient := &http.Client{}
 	jsonBytes, err := json.Marshal(*item)
-	url := "http://" + host + ":28002" + "/AdjReplica"
+	url := "http://" + host + ":28002" + "/adjreplica"
 	req, err := http.NewRequest(http.MethodPost, url,
 		bytes.NewBuffer(jsonBytes))
 	if err != nil {
